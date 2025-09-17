@@ -1,0 +1,19 @@
+.{
+    .name = .fltk,
+    .version = "1.4.4",
+    .fingerprint = 0xeff741a58750ece8,
+    .minimum_zig_version = "0.14.1",
+    .dependencies = .{
+        .fltk = .{
+            .url = "https://github.com/fltk/fltk/releases/download/release-1.4.4/fltk-1.4.4-source.tar.gz",
+            .hash = "N-V-__8AAHXabQGMcsjcykXANFOORO1KlKyEeD66HKuQI3T2",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "LICENSE",
+        "README.md",
+    },
+}
