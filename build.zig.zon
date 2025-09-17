@@ -9,11 +9,5 @@
             .hash = "N-V-__8AAHXabQGMcsjcykXANFOORO1KlKyEeD66HKuQI3T2",
         },
     },
-    .paths = .{
-        "build.zig",
-        "build.zig.zon",
-        "src",
-        "LICENSE",
-        "README.md",
-    },
+    .paths = .{ "build.zig", "build.zig.zon", "src", "LICENSE", "README.md", "zig-config" },
 }
