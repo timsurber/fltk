@@ -7,7 +7,10 @@ Currently supported platforms (including cross compilation):
 - Linux
 - Windows
 
-This is in a very early stage and only a subset of FLTK build options is supported.
+All of the FLTK examples compile except the ones using:
+
+- Cairo
+- OpenGL
 
 ### :rocket: Usage
 
