@@ -35,6 +35,7 @@ const base_cpp_files = [_][]const u8{
     "src/Fl_Input.cxx",
     "src/Fl_Input_.cxx",
     "src/Fl_Input_Choice.cxx",
+    "src/Fl_Int_Vector.cxx",
     "src/Fl_Light_Button.cxx",
     "src/Fl_Menu.cxx",
     "src/Fl_Menu_.cxx",
@@ -175,6 +176,77 @@ const x11_driver_base = [_][]const u8{
     "src/Fl_get_key.cxx",
 };
 
+const img_cpp_files = [_][]const u8{
+    "src/fl_images_core.cxx",
+    "src/fl_write_png.cxx",
+    "src/Fl_BMP_Image.cxx",
+    "src/Fl_File_Icon2.cxx",
+    "src/Fl_GIF_Image.cxx",
+    "src/Fl_Anim_GIF_Image.cxx",
+    "src/Fl_Help_Dialog.cxx",
+    "src/Fl_ICO_Image.cxx",
+    "src/Fl_JPEG_Image.cxx",
+    "src/Fl_PNG_Image.cxx",
+    "src/Fl_PNM_Image.cxx",
+    "src/Fl_Image_Reader.cxx",
+    "src/Fl_SVG_Image.cxx",
+    "src/nanosvg.cxx",
+    "src/drivers/SVG/Fl_SVG_File_Surface.cxx",
+};
+
+const jpeg_srcs = [_][]const u8{
+    "jpeg/jmemnobs.c",
+    "jpeg/jaricom.c",
+    "jpeg/jcomapi.c",
+    "jpeg/jutils.c",
+    "jpeg/jerror.c",
+    "jpeg/jmemmgr.c",
+    "jpeg/jcapimin.c",
+    "jpeg/jcapistd.c",
+    "jpeg/jcarith.c",
+    "jpeg/jctrans.c",
+    "jpeg/jcparam.c",
+    "jpeg/jdatadst.c",
+    "jpeg/jcinit.c",
+    "jpeg/jcmaster.c",
+    "jpeg/jcmarker.c",
+    "jpeg/jcmainct.c",
+    "jpeg/jcprepct.c",
+    "jpeg/jccoefct.c",
+    "jpeg/jccolor.c",
+    "jpeg/jcsample.c",
+    "jpeg/jchuff.c",
+    "jpeg/jcdctmgr.c",
+    "jpeg/jfdctfst.c",
+    "jpeg/jfdctflt.c",
+    "jpeg/jfdctint.c",
+    "jpeg/jdapimin.c",
+    "jpeg/jdapistd.c",
+    "jpeg/jdarith.c",
+    "jpeg/jdtrans.c",
+    "jpeg/jdatasrc.c",
+    "jpeg/jdmaster.c",
+    "jpeg/jdinput.c",
+    "jpeg/jdmarker.c",
+    "jpeg/jdhuff.c",
+    "jpeg/jdmainct.c",
+    "jpeg/jdcoefct.c",
+    "jpeg/jdpostct.c",
+    "jpeg/jddctmgr.c",
+    "jpeg/jidctfst.c",
+    "jpeg/jidctflt.c",
+    "jpeg/jidctint.c",
+    "jpeg/jdsample.c",
+    "jpeg/jdcolor.c",
+    "jpeg/jquant1.c",
+    "jpeg/jquant2.c",
+    "jpeg/jdmerge.c",
+};
+
+const zlib_srcs = [_][]const u8{ "zlib/adler32.c", "zlib/compress.c", "zlib/crc32.c", "zlib/deflate.c", "zlib/gzclose.c", "zlib/gzlib.c", "zlib/gzread.c", "zlib/gzwrite.c", "zlib/inflate.c", "zlib/infback.c", "zlib/inftrees.c", "zlib/inffast.c", "zlib/trees.c", "zlib/uncompr.c", "zlib/zutil.c" };
+
+const png_srcs = [_][]const u8{ "png/png.c", "png/pngerror.c", "png/pngget.c", "png/pngmem.c", "png/pngpread.c", "png/pngread.c", "png/pngrio.c", "png/pngrtran.c", "png/pngrutil.c", "png/pngset.c", "png/pngtrans.c", "png/pngwio.c", "png/pngwrite.c", "png/pngwtran.c", "png/pngwutil.c" };
+
 const x11_driver_extras = [_][]const u8{
     "src/Fl_Native_File_Chooser_Kdialog.cxx",
     "src/Fl_Native_File_Chooser_Zenity.cxx",
@@ -225,7 +297,6 @@ const winapi_c_files = [_][]const u8{
     "src/scandir_win32.c",
     "src/fl_call_main.c",
 };
-
 
 const base_c_files = [_][]const u8{
     "src/flstring.c",
@@ -288,12 +359,26 @@ pub fn build(b: *std.Build) void {
         else => unreachable,
     }
 
+    const use_images = true;
+
+    if (use_images) {
+        estimated_cpp += img_cpp_files.len;
+        estimated_c += jpeg_srcs.len;
+        estimated_c += zlib_srcs.len;
+        estimated_c += png_srcs.len;
+    }
+
     cpp_sources.ensureTotalCapacity(estimated_cpp) catch @panic("oom");
     c_sources.ensureTotalCapacity(estimated_c) catch @panic("oom");
 
     addFiles(&cpp_sources, &base_cpp_files);
     addFiles(&cpp_sources, &postscript_cpp_files);
-
+    if (use_images) {
+        addFiles(&cpp_sources, &img_cpp_files);
+        addFiles(&c_sources, &jpeg_srcs);
+        addFiles(&c_sources, &zlib_srcs);
+        addFiles(&c_sources, &png_srcs);
+    }
     addFiles(&c_sources, &base_c_files);
 
     switch (os_tag) {
