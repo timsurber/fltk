@@ -32,28 +32,30 @@ pub fn build(b: *std.Build) void {
     addFiles(&cpp_sources, &fltk_postscript_cpp_srcs);
     addFiles(&c_sources, &fltk_c_srcs);
 
-    switch (os_tag) {
-        .linux => {
-            addFiles(&cpp_sources, &fltk_driver_x11_cpp_srcs);
-            addFiles(&c_sources, &fltk_driver_x11_c_srcs);
-        },
-        .windows => {
-            addFiles(&cpp_sources, &fltk_driver_winapi_cpp_srcs);
-            addFiles(&c_sources, &fltk_driver_winapi_c_srcs);
-        },
-        else => unreachable,
-    }
-
     const lib = b.addLibrary(.{
         .name = "fltk",
         .linkage = .static,
         .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true, .link_libcpp = true }),
     });
 
-    lib.root_module.addIncludePath(upstream.path("."));
-    lib.root_module.addIncludePath(upstream.path("src"));
-    lib.root_module.addIncludePath(upstream.path("GL"));
-    lib.root_module.addIncludePath(b.path("zig-config"));
+    switch (os_tag) {
+        .linux => {
+            addFiles(&cpp_sources, &fltk_driver_x11_cpp_srcs);
+            addFiles(&c_sources, &fltk_driver_x11_c_srcs);
+            for (linux_system_libs) |name| lib.root_module.linkSystemLibrary(name, .{});
+        },
+        .windows => {
+            addFiles(&cpp_sources, &fltk_driver_winapi_cpp_srcs);
+            addFiles(&c_sources, &fltk_driver_winapi_c_srcs);
+            for (windows_system_libs) |name| lib.root_module.linkSystemLibrary(name, .{});
+        },
+        else => unreachable,
+    }
+
+    lib.addIncludePath(upstream.path("."));
+    lib.addIncludePath(upstream.path("src"));
+    lib.addIncludePath(upstream.path("GL"));
+    lib.addIncludePath(upstream.path("FL"));
 
     lib.root_module.addCMacro("FL_LIBRARY", "1");
     lib.root_module.addCMacro("_FILE_OFFSET_BITS", "64");
@@ -61,6 +63,72 @@ pub fn build(b: *std.Build) void {
     lib.root_module.addCMacro("_LARGEFILE_SOURCE", "1");
     lib.root_module.addCMacro("_REENTRANT", "1");
     lib.root_module.addCMacro("_THREAD_SAFE", "1");
+
+    const img_support_u8: u8 = @as(u8, @intFromBool(img_support));
+    const use_x11_u8: u8 = @as(u8, @intFromBool(os_tag == .linux));
+
+    lib.root_module.addConfigHeader(b.addConfigHeader(
+        .{
+            .style = .{ .cmake = upstream.path("configh.cmake.in") },
+            .include_path = "config.h",
+        },
+        .{
+            .CONFIG_H = "config.h",
+            .CONFIG_H_IN = "configh.cmake.in",
+            .PREFIX_DATA = "/usr/local/share/fltk",
+            .PREFIX_DOC = "/usr/local/share/doc/fltk",
+            .HAVE_GL = 0,
+            .HAVE_GL_GLU_H = 0,
+            .HAVE_GLXGETPROCADDRESSARB = 0,
+            .HAVE_XINERAMA = 0,
+            .USE_XFT = 0,
+            .USE_PANGO = 0,
+            .HAVE_XFIXES = 0,
+            .HAVE_XCURSOR = 0,
+            .HAVE_XRENDER = 0,
+            .HAVE_X11_XREGION_H = 1,
+            .HAVE_GL_OVERLAY = 1,
+            .U16 = "unsigned short",
+            .U32 = "unsigned",
+            .U64 = "unsigned long",
+            .HAVE_DIRENT_H = 1,
+            .HAVE_SCANDIR = 1,
+            .HAVE_SCANDIR_POSIX = 1,
+            .HAVE_VSNPRINTF = 1,
+            .HAVE_SNPRINTF = 1,
+            .HAVE_STRINGS_H = 1,
+            .HAVE_STRCASECMP = 1,
+            .HAVE_PTHREAD = 1,
+            .HAVE_PTHREAD_H = 1,
+            .HAVE_LOCALE_H = 1,
+            .HAVE_LOCALECONV = 1,
+            .HAVE_SYS_SELECT_H = 1,
+            .HAVE_SETENV = 1,
+            .HAVE_TRUNC = 1,
+            .HAVE_LIBPNG = img_support_u8,
+            .HAVE_LIBZ = img_support_u8,
+            .HAVE_LIBJPEG = img_support_u8,
+            .HAVE_PNG_H = img_support_u8,
+            .HAVE_PNG_GET_VALID = img_support_u8,
+            .HAVE_PNG_SET_TRNS_TO_ALPHA = img_support_u8,
+            .HAVE_PTHREAD_MUTEX_RECURSIVE = 1,
+            .HAVE_LONG_LONG = 1,
+            .HAVE_DLFCN_H = 1,
+            .HAVE_DLSYM = 1,
+        },
+    ));
+
+    lib.root_module.addConfigHeader(b.addConfigHeader(
+        .{
+            .style = .{ .cmake = upstream.path("fl_config.cmake.in") },
+            .include_path = "FL/fl_config.h",
+        },
+        .{
+            .FL_ABI_VERSION = "10400",
+            .FLTK_USE_CAIRO = false,
+            .FLTK_USE_X11 = use_x11_u8,
+        },
+    ));
 
     if (img_support) {
         const zlib_dep = b.dependency("zlib", .{
@@ -87,12 +155,11 @@ pub fn build(b: *std.Build) void {
     const cpp_flags = [_][]const u8{"-std=c++11"};
     const c_flags = [_][]const u8{"-std=c11"};
 
-    lib.root_module.addCSourceFiles(.{ .root = upstream.path(""), .files = cpp_sources.items, .flags = &cpp_flags, .language = .cpp });
-    lib.root_module.addCSourceFiles(.{ .root = upstream.path(""), .files = c_sources.items, .flags = &c_flags, .language = .c });
+    lib.addCSourceFiles(.{ .root = upstream.path(""), .files = cpp_sources.items, .flags = &cpp_flags, .language = .cpp });
+    lib.addCSourceFiles(.{ .root = upstream.path(""), .files = c_sources.items, .flags = &c_flags, .language = .c });
 
     b.installArtifact(lib);
 }
-
 const fltk_cpp_srcs = [_][]const u8{
     "src/Fl.cxx",
     "src/Fl_Adjuster.cxx",
@@ -344,4 +411,28 @@ const fltk_driver_winapi_cpp_srcs = [_][]const u8{
 const fltk_driver_winapi_c_srcs = [_][]const u8{
     "src/scandir_win32.c",
     "src/fl_call_main.c",
+};
+
+const linux_system_libs = [_][]const u8{
+    "pthread",
+    "dl",
+    "m",
+    "X11",
+    "Xext",
+    "GL",
+    "GLU",
+};
+
+const windows_system_libs = [_][]const u8{
+    "gdi32",
+    "user32",
+    "shell32",
+    "ole32",
+    "oleaut32",
+    "uuid",
+    "comctl32",
+    "comdlg32",
+    "advapi32",
+    "ws2_32",
+    "winspool",
 };
