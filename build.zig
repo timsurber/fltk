@@ -57,6 +57,14 @@ pub fn build(b: *std.Build) void {
     lib.addIncludePath(upstream.path("GL"));
     lib.addIncludePath(upstream.path("FL"));
 
+    const header_dir_opts = std.Build.Step.Compile.HeaderInstallation.Directory.Options{
+        .include_extensions = &.{ ".h", ".H" },
+    };
+    lib.installHeadersDirectory(upstream.path("FL"), "FL", header_dir_opts);
+    lib.installHeadersDirectory(upstream.path("GL"), "GL", header_dir_opts);
+    lib.installHeader(upstream.path("forms.h"), "forms.h");
+    lib.installHeader(upstream.path("mac_endianness.h"), "mac_endianness.h");
+
     lib.root_module.addCMacro("FL_LIBRARY", "1");
     lib.root_module.addCMacro("_FILE_OFFSET_BITS", "64");
     lib.root_module.addCMacro("_LARGEFILE64_SOURCE", "1");
@@ -67,7 +75,7 @@ pub fn build(b: *std.Build) void {
     const img_support_u8: u8 = @as(u8, @intFromBool(img_support));
     const use_x11_u8: u8 = @as(u8, @intFromBool(os_tag == .linux));
 
-    lib.root_module.addConfigHeader(b.addConfigHeader(
+    const config_h = b.addConfigHeader(
         .{
             .style = .{ .cmake = upstream.path("configh.cmake.in") },
             .include_path = "config.h",
@@ -116,9 +124,11 @@ pub fn build(b: *std.Build) void {
             .HAVE_DLFCN_H = 1,
             .HAVE_DLSYM = 1,
         },
-    ));
+    );
+    lib.root_module.addConfigHeader(config_h);
+    lib.installConfigHeader(config_h);
 
-    lib.root_module.addConfigHeader(b.addConfigHeader(
+    const fl_config_h = b.addConfigHeader(
         .{
             .style = .{ .cmake = upstream.path("fl_config.cmake.in") },
             .include_path = "FL/fl_config.h",
@@ -128,7 +138,9 @@ pub fn build(b: *std.Build) void {
             .FLTK_USE_CAIRO = false,
             .FLTK_USE_X11 = use_x11_u8,
         },
-    ));
+    );
+    lib.root_module.addConfigHeader(fl_config_h);
+    lib.installConfigHeader(fl_config_h);
 
     if (img_support) {
         const zlib_dep = b.dependency("zlib", .{
