@@ -1,6 +1,99 @@
 const std = @import("std");
 
-const base_cpp_files = [_][]const u8{
+fn addFiles(list: *std.ArrayList([]const u8), files: []const []const u8) void {
+    for (files) |file| {
+        list.append(file) catch @panic("oom");
+    }
+}
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+    const upstream = b.dependency("fltk", .{});
+
+    const img_support = b.option(
+        bool,
+        "img_support",
+        "Build FLTK with image support. Links static zlib, libpng and libjpg",
+    ) orelse true;
+
+    const os_tag = target.result.os.tag;
+    if (os_tag != .linux and os_tag != .windows) {
+        @panic("zig build for FLTK currently supports only Linux (X11) and Windows (WinAPI) targets");
+    }
+
+    var cpp_sources = std.ArrayList([]const u8).init(b.allocator);
+    defer cpp_sources.deinit();
+
+    var c_sources = std.ArrayList([]const u8).init(b.allocator);
+    defer c_sources.deinit();
+
+    addFiles(&cpp_sources, &fltk_cpp_srcs);
+    addFiles(&cpp_sources, &fltk_postscript_cpp_srcs);
+    addFiles(&c_sources, &fltk_c_srcs);
+
+    switch (os_tag) {
+        .linux => {
+            addFiles(&cpp_sources, &fltk_driver_x11_cpp_srcs);
+            addFiles(&c_sources, &fltk_driver_x11_c_srcs);
+        },
+        .windows => {
+            addFiles(&cpp_sources, &fltk_driver_winapi_cpp_srcs);
+            addFiles(&c_sources, &fltk_driver_winapi_c_srcs);
+        },
+        else => unreachable,
+    }
+
+    const lib = b.addLibrary(.{
+        .name = "fltk",
+        .linkage = .static,
+        .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true, .link_libcpp = true }),
+    });
+
+    lib.root_module.addIncludePath(upstream.path("."));
+    lib.root_module.addIncludePath(upstream.path("src"));
+    lib.root_module.addIncludePath(upstream.path("GL"));
+    lib.root_module.addIncludePath(b.path("zig-config"));
+
+    lib.root_module.addCMacro("FL_LIBRARY", "1");
+    lib.root_module.addCMacro("_FILE_OFFSET_BITS", "64");
+    lib.root_module.addCMacro("_LARGEFILE64_SOURCE", "1");
+    lib.root_module.addCMacro("_LARGEFILE_SOURCE", "1");
+    lib.root_module.addCMacro("_REENTRANT", "1");
+    lib.root_module.addCMacro("_THREAD_SAFE", "1");
+
+    if (img_support) {
+        const zlib_dep = b.dependency("zlib", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        lib.linkLibrary(zlib_dep.artifact("z"));
+
+        const libjpeg_dep = b.dependency("libjpeg", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        lib.linkLibrary(libjpeg_dep.artifact("jpeg"));
+
+        const libpng_dep = b.dependency("libpng", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        lib.linkLibrary(libpng_dep.artifact("png"));
+
+        addFiles(&cpp_sources, &fltk_img_cpp_srcs);
+    }
+
+    const cpp_flags = [_][]const u8{"-std=c++11"};
+    const c_flags = [_][]const u8{"-std=c11"};
+
+    lib.root_module.addCSourceFiles(.{ .root = upstream.path(""), .files = cpp_sources.items, .flags = &cpp_flags, .language = .cpp });
+    lib.root_module.addCSourceFiles(.{ .root = upstream.path(""), .files = c_sources.items, .flags = &c_flags, .language = .c });
+
+    b.installArtifact(lib);
+}
+
+const fltk_cpp_srcs = [_][]const u8{
     "src/Fl.cxx",
     "src/Fl_Adjuster.cxx",
     "src/Fl_Bitmap.cxx",
@@ -159,24 +252,16 @@ const base_cpp_files = [_][]const u8{
     "src/screen_xywh.cxx",
 };
 
-const x11_driver_base = [_][]const u8{
-    "src/drivers/Posix/Fl_Posix_Printer_Driver.cxx",
-    "src/drivers/X11/Fl_X11_Screen_Driver.cxx",
-    "src/drivers/X11/Fl_X11_Window_Driver.cxx",
-    "src/drivers/Posix/Fl_Posix_System_Driver.cxx",
-    "src/drivers/Unix/Fl_Unix_System_Driver.cxx",
-    "src/drivers/Unix/Fl_Unix_Screen_Driver.cxx",
-    "src/drivers/Xlib/Fl_Xlib_Copy_Surface_Driver.cxx",
-    "src/drivers/Xlib/Fl_Xlib_Image_Surface_Driver.cxx",
-    "src/drivers/X11/fl_X11_platform_init.cxx",
-    "src/Fl_x.cxx",
-    "src/fl_dnd_x.cxx",
-    "src/Fl_Native_File_Chooser_FLTK.cxx",
-    "src/Fl_Native_File_Chooser_GTK.cxx",
-    "src/Fl_get_key.cxx",
+const fltk_c_srcs = [_][]const u8{
+    "src/flstring.c",
+    "src/numericsort.c",
+    "src/vsnprintf.c",
+    "src/xutf8/is_right2left.c",
+    "src/xutf8/is_spacing.c",
+    "src/xutf8/case.c",
 };
 
-const img_cpp_files = [_][]const u8{
+const fltk_img_cpp_srcs = [_][]const u8{
     "src/fl_images_core.cxx",
     "src/fl_write_png.cxx",
     "src/Fl_BMP_Image.cxx",
@@ -194,69 +279,29 @@ const img_cpp_files = [_][]const u8{
     "src/drivers/SVG/Fl_SVG_File_Surface.cxx",
 };
 
-const jpeg_srcs = [_][]const u8{
-    "jpeg/jmemnobs.c",
-    "jpeg/jaricom.c",
-    "jpeg/jcomapi.c",
-    "jpeg/jutils.c",
-    "jpeg/jerror.c",
-    "jpeg/jmemmgr.c",
-    "jpeg/jcapimin.c",
-    "jpeg/jcapistd.c",
-    "jpeg/jcarith.c",
-    "jpeg/jctrans.c",
-    "jpeg/jcparam.c",
-    "jpeg/jdatadst.c",
-    "jpeg/jcinit.c",
-    "jpeg/jcmaster.c",
-    "jpeg/jcmarker.c",
-    "jpeg/jcmainct.c",
-    "jpeg/jcprepct.c",
-    "jpeg/jccoefct.c",
-    "jpeg/jccolor.c",
-    "jpeg/jcsample.c",
-    "jpeg/jchuff.c",
-    "jpeg/jcdctmgr.c",
-    "jpeg/jfdctfst.c",
-    "jpeg/jfdctflt.c",
-    "jpeg/jfdctint.c",
-    "jpeg/jdapimin.c",
-    "jpeg/jdapistd.c",
-    "jpeg/jdarith.c",
-    "jpeg/jdtrans.c",
-    "jpeg/jdatasrc.c",
-    "jpeg/jdmaster.c",
-    "jpeg/jdinput.c",
-    "jpeg/jdmarker.c",
-    "jpeg/jdhuff.c",
-    "jpeg/jdmainct.c",
-    "jpeg/jdcoefct.c",
-    "jpeg/jdpostct.c",
-    "jpeg/jddctmgr.c",
-    "jpeg/jidctfst.c",
-    "jpeg/jidctflt.c",
-    "jpeg/jidctint.c",
-    "jpeg/jdsample.c",
-    "jpeg/jdcolor.c",
-    "jpeg/jquant1.c",
-    "jpeg/jquant2.c",
-    "jpeg/jdmerge.c",
+const fltk_postscript_cpp_srcs = [_][]const u8{
+    "src/drivers/PostScript/Fl_PostScript.cxx",
+    "src/drivers/PostScript/Fl_PostScript_image.cxx",
 };
 
-const zlib_srcs = [_][]const u8{ "zlib/adler32.c", "zlib/compress.c", "zlib/crc32.c", "zlib/deflate.c", "zlib/gzclose.c", "zlib/gzlib.c", "zlib/gzread.c", "zlib/gzwrite.c", "zlib/inflate.c", "zlib/infback.c", "zlib/inftrees.c", "zlib/inffast.c", "zlib/trees.c", "zlib/uncompr.c", "zlib/zutil.c" };
-
-const png_srcs = [_][]const u8{ "png/png.c", "png/pngerror.c", "png/pngget.c", "png/pngmem.c", "png/pngpread.c", "png/pngread.c", "png/pngrio.c", "png/pngrtran.c", "png/pngrutil.c", "png/pngset.c", "png/pngtrans.c", "png/pngwio.c", "png/pngwrite.c", "png/pngwtran.c", "png/pngwutil.c" };
-
-const x11_driver_extras = [_][]const u8{
+const fltk_driver_x11_cpp_srcs = [_][]const u8{
+    "src/drivers/Posix/Fl_Posix_Printer_Driver.cxx",
+    "src/drivers/X11/Fl_X11_Screen_Driver.cxx",
+    "src/drivers/X11/Fl_X11_Window_Driver.cxx",
+    "src/drivers/Posix/Fl_Posix_System_Driver.cxx",
+    "src/drivers/Unix/Fl_Unix_System_Driver.cxx",
+    "src/drivers/Unix/Fl_Unix_Screen_Driver.cxx",
+    "src/drivers/Xlib/Fl_Xlib_Copy_Surface_Driver.cxx",
+    "src/drivers/Xlib/Fl_Xlib_Image_Surface_Driver.cxx",
+    "src/drivers/X11/fl_X11_platform_init.cxx",
+    "src/Fl_x.cxx",
+    "src/fl_dnd_x.cxx",
+    "src/Fl_Native_File_Chooser_FLTK.cxx",
+    "src/Fl_Native_File_Chooser_GTK.cxx",
+    "src/Fl_get_key.cxx",
     "src/Fl_Native_File_Chooser_Kdialog.cxx",
     "src/Fl_Native_File_Chooser_Zenity.cxx",
-};
-
-const xlib_font_driver = [_][]const u8{
     "src/drivers/Xlib/Fl_Xlib_Graphics_Driver_font_x.cxx",
-};
-
-const xlib_core_driver = [_][]const u8{
     "src/drivers/Xlib/Fl_Xlib_Graphics_Driver.cxx",
     "src/drivers/Xlib/Fl_Xlib_Graphics_Driver_arci.cxx",
     "src/drivers/Xlib/Fl_Xlib_Graphics_Driver_color.cxx",
@@ -266,12 +311,15 @@ const xlib_core_driver = [_][]const u8{
     "src/drivers/Xlib/Fl_Xlib_Graphics_Driver_vertex.cxx",
 };
 
-const postscript_cpp_files = [_][]const u8{
-    "src/drivers/PostScript/Fl_PostScript.cxx",
-    "src/drivers/PostScript/Fl_PostScript_image.cxx",
+const fltk_driver_x11_c_srcs = [_][]const u8{
+    "src/xutf8/keysym2Ucs.c",
+    "src/scandir_posix.c",
+    "src/xutf8/utf8Utils.c",
+    "src/xutf8/utf8Input.c",
+    "src/xutf8/utf8Wrap.c",
 };
 
-const winapi_driver_cpp = [_][]const u8{
+const fltk_driver_winapi_cpp_srcs = [_][]const u8{
     "src/drivers/WinAPI/Fl_WinAPI_System_Driver.cxx",
     "src/drivers/WinAPI/Fl_WinAPI_Screen_Driver.cxx",
     "src/drivers/WinAPI/Fl_WinAPI_Window_Driver.cxx",
@@ -293,154 +341,7 @@ const winapi_driver_cpp = [_][]const u8{
     "src/drivers/WinAPI/fl_WinAPI_platform_init.cxx",
 };
 
-const winapi_c_files = [_][]const u8{
+const fltk_driver_winapi_c_srcs = [_][]const u8{
     "src/scandir_win32.c",
     "src/fl_call_main.c",
 };
-
-const base_c_files = [_][]const u8{
-    "src/flstring.c",
-    "src/numericsort.c",
-    "src/vsnprintf.c",
-    "src/xutf8/is_right2left.c",
-    "src/xutf8/is_spacing.c",
-    "src/xutf8/case.c",
-};
-
-const x11_c_files = [_][]const u8{
-    "src/xutf8/keysym2Ucs.c",
-    "src/scandir_posix.c",
-    "src/xutf8/utf8Utils.c",
-    "src/xutf8/utf8Input.c",
-    "src/xutf8/utf8Wrap.c",
-};
-
-fn appendUnique(list: *std.ArrayList([]const u8), value: []const u8) void {
-    for (list.items) |existing| {
-        if (std.mem.eql(u8, existing, value)) return;
-    }
-    list.appendAssumeCapacity(value);
-}
-
-fn addFiles(list: *std.ArrayList([]const u8), files: []const []const u8) void {
-    for (files) |file| {
-        appendUnique(list, file);
-    }
-}
-
-pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
-    const fltk_dep = b.dependency("fltk", .{});
-
-    const os_tag = target.result.os.tag;
-    if (os_tag != .linux and os_tag != .windows) {
-        @panic("zig build currently supports only Linux (X11) and Windows (WinAPI) targets");
-    }
-
-    var cpp_sources = std.ArrayList([]const u8).init(b.allocator);
-    defer cpp_sources.deinit();
-
-    var c_sources = std.ArrayList([]const u8).init(b.allocator);
-    defer c_sources.deinit();
-
-    var estimated_cpp = base_cpp_files.len + postscript_cpp_files.len;
-    var estimated_c = base_c_files.len;
-
-    switch (os_tag) {
-        .linux => {
-            estimated_cpp += x11_driver_base.len + x11_driver_extras.len + xlib_font_driver.len + xlib_core_driver.len;
-            estimated_c += x11_c_files.len;
-        },
-        .windows => {
-            estimated_cpp += winapi_driver_cpp.len;
-            estimated_c += winapi_c_files.len;
-        },
-        else => unreachable,
-    }
-
-    const use_images = true;
-
-    if (use_images) {
-        estimated_cpp += img_cpp_files.len;
-        estimated_c += jpeg_srcs.len;
-        estimated_c += zlib_srcs.len;
-        estimated_c += png_srcs.len;
-    }
-
-    cpp_sources.ensureTotalCapacity(estimated_cpp) catch @panic("oom");
-    c_sources.ensureTotalCapacity(estimated_c) catch @panic("oom");
-
-    addFiles(&cpp_sources, &base_cpp_files);
-    addFiles(&cpp_sources, &postscript_cpp_files);
-    if (use_images) {
-        addFiles(&cpp_sources, &img_cpp_files);
-        addFiles(&c_sources, &jpeg_srcs);
-        addFiles(&c_sources, &zlib_srcs);
-        addFiles(&c_sources, &png_srcs);
-    }
-    addFiles(&c_sources, &base_c_files);
-
-    switch (os_tag) {
-        .linux => {
-            addFiles(&cpp_sources, &x11_driver_base);
-            addFiles(&cpp_sources, &x11_driver_extras);
-            addFiles(&cpp_sources, &xlib_font_driver);
-            addFiles(&cpp_sources, &xlib_core_driver);
-            addFiles(&c_sources, &x11_c_files);
-        },
-        .windows => {
-            addFiles(&cpp_sources, &winapi_driver_cpp);
-            addFiles(&c_sources, &winapi_c_files);
-        },
-        else => unreachable,
-    }
-
-    const lib = b.addStaticLibrary(.{
-        .name = "fltk",
-        .target = target,
-        .optimize = optimize,
-    });
-
-    lib.linkLibC();
-    lib.linkLibCpp();
-
-    lib.root_module.addIncludePath(fltk_dep.path("."));
-    lib.root_module.addIncludePath(fltk_dep.path("src"));
-    lib.root_module.addIncludePath(fltk_dep.path("GL"));
-    lib.root_module.addIncludePath(fltk_dep.path("jpeg"));
-    lib.root_module.addIncludePath(fltk_dep.path("png"));
-    lib.root_module.addIncludePath(fltk_dep.path("zlib"));
-    lib.root_module.addIncludePath(b.path("zig-config"));
-
-    lib.root_module.addCMacro("FL_LIBRARY", "1");
-    lib.root_module.addCMacro("_FILE_OFFSET_BITS", "64");
-    lib.root_module.addCMacro("_LARGEFILE64_SOURCE", "1");
-    lib.root_module.addCMacro("_LARGEFILE_SOURCE", "1");
-    lib.root_module.addCMacro("_REENTRANT", "1");
-    lib.root_module.addCMacro("_THREAD_SAFE", "1");
-
-    const cxx_flags = [_][]const u8{"-std=c++11"};
-    const c_flags = [_][]const u8{"-std=c11"};
-
-    for (cpp_sources.items) |file| {
-        lib.root_module.addCSourceFile(.{
-            .file = fltk_dep.path(file),
-            .flags = &cxx_flags,
-            .language = .cpp,
-        });
-    }
-
-    for (c_sources.items) |file| {
-        lib.root_module.addCSourceFile(.{
-            .file = fltk_dep.path(file),
-            .flags = &c_flags,
-            .language = .c,
-        });
-    }
-
-    b.installArtifact(lib);
-
-    const build_step = b.step("fltk", "Build the FLTK static library");
-    build_step.dependOn(&lib.step);
-}
