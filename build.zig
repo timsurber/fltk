@@ -17,6 +17,12 @@ pub fn build(b: *std.Build) void {
         "Build FLTK with image support. Links static zlib, libpng and libjpg",
     ) orelse true;
 
+    const opengl_support = b.option(
+        bool,
+        "opengl_support",
+        "Build FLTK with opengl support",
+    ) orelse true;
+
     const os_tag = target.result.os.tag;
     if (os_tag != .linux and os_tag != .windows) {
         @panic("zig build for FLTK currently supports only Linux (X11) and Windows (WinAPI) targets");
@@ -83,9 +89,10 @@ pub fn build(b: *std.Build) void {
             .CONFIG_H_IN = "configh.cmake.in",
             .PREFIX_DATA = if (os_tag == .linux) "/usr/local/share/fltk" else "c:/Program Files/fltk",
             .PREFIX_DOC = if (os_tag == .linux) "/usr/local/share/doc/fltk" else "c:/Program Files/fltk",
-            .HAVE_GL = 0,
-            .HAVE_GL_GLU_H = 0,
-            .HAVE_GLXGETPROCADDRESSARB = 0,
+            .HAVE_GL = opengl_support,
+            // TODO when to enable these?
+            .HAVE_GL_GLU_H = os_tag == .linux,
+            .HAVE_GLXGETPROCADDRESSARB = os_tag == .linux,
             .HAVE_XINERAMA = 0,
             .USE_XFT = 0,
             .USE_PANGO = 0,
@@ -160,6 +167,14 @@ pub fn build(b: *std.Build) void {
         lib.linkLibrary(libpng_dep.artifact("png"));
 
         addFiles(&cpp_sources, &fltk_img_cpp_srcs);
+    }
+
+    if (opengl_support) {
+        addFiles(&cpp_sources, &fltk_gl_cpp_srcs);
+        addFiles(&cpp_sources, &fltk_driver_gl_cpp_srcs);
+        if (os_tag == .linux) {
+            addFiles(&cpp_sources, &fltk_driver_gl_x11_cpp_srcs);
+        }
     }
 
     const cpp_flags = [_][]const u8{"-std=c++11"};
@@ -355,6 +370,21 @@ const fltk_img_cpp_srcs = [_][]const u8{
     "src/drivers/SVG/Fl_SVG_File_Surface.cxx",
 };
 
+const fltk_gl_cpp_srcs = [_][]const u8{
+    "src/Fl_Gl_Choice.cxx",
+    "src/Fl_Gl_Device_Plugin.cxx",
+    "src/Fl_Gl_Overlay.cxx",
+    "src/Fl_Gl_Window.cxx",
+    "src/freeglut_geometry.cxx",
+    "src/freeglut_stroke_mono_roman.cxx",
+    "src/freeglut_stroke_roman.cxx",
+    "src/freeglut_teapot.cxx",
+    "src/gl_draw.cxx",
+    "src/gl_start.cxx",
+    "src/glut_compatibility.cxx",
+    "src/glut_font.cxx",
+};
+
 const fltk_postscript_cpp_srcs = [_][]const u8{
     "src/drivers/PostScript/Fl_PostScript.cxx",
     "src/drivers/PostScript/Fl_PostScript_image.cxx",
@@ -422,6 +452,22 @@ const fltk_driver_winapi_c_srcs = [_][]const u8{
     "src/fl_call_main.c",
 };
 
+const fltk_driver_gl_cpp_srcs = [_][]const u8{
+    "src/drivers/OpenGL/Fl_OpenGL_Display_Device.cxx",
+    //the following file doesn't contribute any code:
+    "src/drivers/OpenGL/Fl_OpenGL_Graphics_Driver.cxx",
+    "src/drivers/OpenGL/Fl_OpenGL_Graphics_Driver_arci.cxx",
+    "src/drivers/OpenGL/Fl_OpenGL_Graphics_Driver_color.cxx",
+    "src/drivers/OpenGL/Fl_OpenGL_Graphics_Driver_font.cxx",
+    "src/drivers/OpenGL/Fl_OpenGL_Graphics_Driver_line_style.cxx",
+    "src/drivers/OpenGL/Fl_OpenGL_Graphics_Driver_rect.cxx",
+    "src/drivers/OpenGL/Fl_OpenGL_Graphics_Driver_vertex.cxx",
+};
+
+const fltk_driver_gl_x11_cpp_srcs = [_][]const u8{
+    "src/drivers/X11/Fl_X11_Gl_Window_Driver.cxx",
+};
+
 const linux_system_libs = [_][]const u8{
     "pthread",
     "dl",
@@ -430,6 +476,7 @@ const linux_system_libs = [_][]const u8{
     "Xext",
     "GL",
     "GLU",
+    "glew",
 };
 
 const windows_system_libs = [_][]const u8{
