@@ -55,7 +55,6 @@ pub fn build(b: *std.Build) void {
     lib.addIncludePath(upstream.path("."));
     lib.addIncludePath(upstream.path("src"));
     lib.addIncludePath(upstream.path("GL"));
-    lib.addIncludePath(upstream.path("FL"));
 
     const header_dir_opts = std.Build.Step.Compile.HeaderInstallation.Directory.Options{
         .include_extensions = &.{ ".h", ".H" },
@@ -74,7 +73,6 @@ pub fn build(b: *std.Build) void {
 
     const img_support_u8: u8 = @as(u8, @intFromBool(img_support));
     const use_x11_u8: u8 = @as(u8, @intFromBool(os_tag == .linux));
-
     const config_h = b.addConfigHeader(
         .{
             .style = .{ .cmake = upstream.path("configh.cmake.in") },
@@ -83,8 +81,8 @@ pub fn build(b: *std.Build) void {
         .{
             .CONFIG_H = "config.h",
             .CONFIG_H_IN = "configh.cmake.in",
-            .PREFIX_DATA = "/usr/local/share/fltk",
-            .PREFIX_DOC = "/usr/local/share/doc/fltk",
+            .PREFIX_DATA = if (os_tag == .linux) "/usr/local/share/fltk" else "c:/Program Files/fltk",
+            .PREFIX_DOC = if (os_tag == .linux) "/usr/local/share/doc/fltk" else "c:/Program Files/fltk",
             .HAVE_GL = 0,
             .HAVE_GL_GLU_H = 0,
             .HAVE_GLXGETPROCADDRESSARB = 0,
@@ -94,24 +92,24 @@ pub fn build(b: *std.Build) void {
             .HAVE_XFIXES = 0,
             .HAVE_XCURSOR = 0,
             .HAVE_XRENDER = 0,
-            .HAVE_X11_XREGION_H = 1,
-            .HAVE_GL_OVERLAY = 1,
+            .HAVE_X11_XREGION_H = os_tag == .linux,
+            .HAVE_GL_OVERLAY = os_tag == .linux,
             .U16 = "unsigned short",
             .U32 = "unsigned",
             .U64 = "unsigned long",
-            .HAVE_DIRENT_H = 1,
-            .HAVE_SCANDIR = 1,
-            .HAVE_SCANDIR_POSIX = 1,
-            .HAVE_VSNPRINTF = 1,
-            .HAVE_SNPRINTF = 1,
-            .HAVE_STRINGS_H = 1,
-            .HAVE_STRCASECMP = 1,
-            .HAVE_PTHREAD = 1,
-            .HAVE_PTHREAD_H = 1,
+            .HAVE_DIRENT_H = os_tag == .linux,
+            .HAVE_SCANDIR = os_tag == .linux,
+            .HAVE_SCANDIR_POSIX = os_tag == .linux,
+            .HAVE_VSNPRINTF = os_tag == .linux,
+            .HAVE_SNPRINTF = os_tag == .linux,
+            .HAVE_STRINGS_H = os_tag == .linux,
+            .HAVE_STRCASECMP = os_tag == .linux,
+            .HAVE_PTHREAD = os_tag == .linux,
+            .HAVE_PTHREAD_H = os_tag == .linux,
             .HAVE_LOCALE_H = 1,
             .HAVE_LOCALECONV = 1,
-            .HAVE_SYS_SELECT_H = 1,
-            .HAVE_SETENV = 1,
+            .HAVE_SYS_SELECT_H = os_tag == .linux,
+            .HAVE_SETENV = os_tag == .linux,
             .HAVE_TRUNC = 1,
             .HAVE_LIBPNG = img_support_u8,
             .HAVE_LIBZ = img_support_u8,
@@ -119,10 +117,10 @@ pub fn build(b: *std.Build) void {
             .HAVE_PNG_H = img_support_u8,
             .HAVE_PNG_GET_VALID = img_support_u8,
             .HAVE_PNG_SET_TRNS_TO_ALPHA = img_support_u8,
-            .HAVE_PTHREAD_MUTEX_RECURSIVE = 1,
+            .HAVE_PTHREAD_MUTEX_RECURSIVE = os_tag == .linux,
             .HAVE_LONG_LONG = 1,
-            .HAVE_DLFCN_H = 1,
-            .HAVE_DLSYM = 1,
+            .HAVE_DLFCN_H = os_tag == .linux,
+            .HAVE_DLSYM = os_tag == .linux,
         },
     );
     lib.root_module.addConfigHeader(config_h);
@@ -169,7 +167,6 @@ pub fn build(b: *std.Build) void {
 
     lib.addCSourceFiles(.{ .root = upstream.path(""), .files = cpp_sources.items, .flags = &cpp_flags, .language = .cpp });
     lib.addCSourceFiles(.{ .root = upstream.path(""), .files = c_sources.items, .flags = &c_flags, .language = .c });
-
     b.installArtifact(lib);
 }
 const fltk_cpp_srcs = [_][]const u8{
