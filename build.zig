@@ -10,6 +10,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const upstream = b.dependency("fltk", .{});
+    // cairo crashes when built in debug mode
+    const dep_optimize: std.builtin.OptimizeMode = switch (optimize) {
+        .Debug => .ReleaseFast,
+        else => optimize,
+    };
 
     const img_support = b.option(
         bool,
@@ -20,8 +25,14 @@ pub fn build(b: *std.Build) void {
     const opengl_support = b.option(
         bool,
         "opengl_support",
-        "Build FLTK with opengl support",
-    ) orelse true;
+        "Build FLTK with opengl support (currently only linux supported)",
+    ) orelse false;
+
+    const cairo_support = b.option(
+        bool,
+        "cairo_support",
+        "Build FLTK with cairo support (currently only linux supported)",
+    ) orelse false;
 
     const os_tag = target.result.os.tag;
     if (os_tag != .linux and os_tag != .windows) {
@@ -46,7 +57,10 @@ pub fn build(b: *std.Build) void {
 
     switch (os_tag) {
         .linux => {
-            addFiles(&cpp_sources, &fltk_driver_x11_cpp_srcs);
+            addFiles(&cpp_sources, &fltk_driver_x11_base_cpp_srcs);
+            if (!cairo_support) {
+                addFiles(&cpp_sources, &fltk_driver_xlib_graphics_cpp_srcs);
+            }
             addFiles(&c_sources, &fltk_driver_x11_c_srcs);
             for (linux_system_libs) |name| lib.root_module.linkSystemLibrary(name, .{});
         },
@@ -79,6 +93,9 @@ pub fn build(b: *std.Build) void {
 
     const img_support_u8: u8 = @as(u8, @intFromBool(img_support));
     const use_x11_u8: u8 = @as(u8, @intFromBool(os_tag == .linux));
+    const use_pango_u8: u8 = @as(u8, @intFromBool(cairo_support));
+    const use_xft_u8: u8 = use_pango_u8;
+
     const config_h = b.addConfigHeader(
         .{
             .style = .{ .cmake = upstream.path("configh.cmake.in") },
@@ -94,8 +111,8 @@ pub fn build(b: *std.Build) void {
             .HAVE_GL_GLU_H = os_tag == .linux,
             .HAVE_GLXGETPROCADDRESSARB = os_tag == .linux,
             .HAVE_XINERAMA = 0,
-            .USE_XFT = 0,
-            .USE_PANGO = 0,
+            .USE_XFT = use_xft_u8,
+            .USE_PANGO = use_pango_u8,
             .HAVE_XFIXES = 0,
             .HAVE_XCURSOR = 0,
             .HAVE_XRENDER = 0,
@@ -140,8 +157,9 @@ pub fn build(b: *std.Build) void {
         },
         .{
             .FL_ABI_VERSION = "10400",
-            .FLTK_USE_CAIRO = false,
+            .FLTK_USE_CAIRO = cairo_support,
             .FLTK_USE_X11 = use_x11_u8,
+            .FLTK_HAVE_CAIRO = cairo_support,
         },
     );
     lib.root_module.addConfigHeader(fl_config_h);
@@ -150,23 +168,33 @@ pub fn build(b: *std.Build) void {
     if (img_support) {
         const zlib_dep = b.dependency("zlib", .{
             .target = target,
-            .optimize = optimize,
+            .optimize = dep_optimize,
         });
         lib.linkLibrary(zlib_dep.artifact("z"));
 
         const libjpeg_dep = b.dependency("libjpeg", .{
             .target = target,
-            .optimize = optimize,
+            .optimize = dep_optimize,
         });
         lib.linkLibrary(libjpeg_dep.artifact("jpeg"));
 
         const libpng_dep = b.dependency("libpng", .{
             .target = target,
-            .optimize = optimize,
+            .optimize = dep_optimize,
         });
         lib.linkLibrary(libpng_dep.artifact("png"));
 
         addFiles(&cpp_sources, &fltk_img_cpp_srcs);
+    }
+
+    if (cairo_support) {
+        const cairo_dep = b.dependency("cairo_zig", .{
+            .target = target,
+            .optimize = dep_optimize,
+            .use_spectre = false,
+        });
+        lib.linkLibrary(cairo_dep.artifact("cairo"));
+        addFiles(&cpp_sources, &fltk_driver_cairo_x11_cpp_srcs);
     }
 
     if (opengl_support) {
@@ -174,6 +202,8 @@ pub fn build(b: *std.Build) void {
         addFiles(&cpp_sources, &fltk_driver_gl_cpp_srcs);
         if (os_tag == .linux) {
             addFiles(&cpp_sources, &fltk_driver_gl_x11_cpp_srcs);
+        } else {
+            addFiles(&cpp_sources, &fltk_driver_gl_winapi_cpp_srcs);
         }
     }
 
@@ -389,8 +419,11 @@ const fltk_postscript_cpp_srcs = [_][]const u8{
     "src/drivers/PostScript/Fl_PostScript.cxx",
     "src/drivers/PostScript/Fl_PostScript_image.cxx",
 };
+///////////////////
+/// DRIVER
+//////////////////
 
-const fltk_driver_x11_cpp_srcs = [_][]const u8{
+const fltk_driver_x11_base_cpp_srcs = [_][]const u8{
     "src/drivers/Posix/Fl_Posix_Printer_Driver.cxx",
     "src/drivers/X11/Fl_X11_Screen_Driver.cxx",
     "src/drivers/X11/Fl_X11_Window_Driver.cxx",
@@ -407,6 +440,9 @@ const fltk_driver_x11_cpp_srcs = [_][]const u8{
     "src/Fl_get_key.cxx",
     "src/Fl_Native_File_Chooser_Kdialog.cxx",
     "src/Fl_Native_File_Chooser_Zenity.cxx",
+};
+
+const fltk_driver_xlib_graphics_cpp_srcs = [_][]const u8{
     "src/drivers/Xlib/Fl_Xlib_Graphics_Driver_font_x.cxx",
     "src/drivers/Xlib/Fl_Xlib_Graphics_Driver.cxx",
     "src/drivers/Xlib/Fl_Xlib_Graphics_Driver_arci.cxx",
@@ -468,15 +504,29 @@ const fltk_driver_gl_x11_cpp_srcs = [_][]const u8{
     "src/drivers/X11/Fl_X11_Gl_Window_Driver.cxx",
 };
 
+const fltk_driver_cairo_x11_cpp_srcs = [_][]const u8{
+    "src/Fl_Cairo.cxx",
+    "src/drivers/Cairo/Fl_Cairo_Graphics_Driver.cxx",
+    "src/drivers/Cairo/Fl_X11_Cairo_Graphics_Driver.cxx",
+};
+
+const fltk_driver_gl_winapi_cpp_srcs = [_][]const u8{
+    "src/drivers/WinAPI/Fl_WinAPI_Gl_Window_Driver.cxx",
+};
+
 const linux_system_libs = [_][]const u8{
     "pthread",
     "dl",
     "m",
     "X11",
     "Xext",
+    "Xft",
     "GL",
     "GLU",
     "glew",
+    // todo static compile??
+    "pangocairo-1.0",
+    "cairo",
 };
 
 const windows_system_libs = [_][]const u8{
