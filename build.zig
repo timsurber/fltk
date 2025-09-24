@@ -428,6 +428,8 @@ const fltk_c_srcs = [_][]const u8{
     "src/scandir_posix.c",
     "src/numericsort.c",
     "src/vsnprintf.c",
+    "src/xutf8/is_spacing.c",
+    "src/xutf8/case.c",
 };
 
 const fltk_img_cpp_srcs = [_][]const u8{
@@ -491,9 +493,7 @@ const fltk_driver_linux_c_srcs = [_][]const u8{
     "libdecor/src/desktop-settings.c",
     "libdecor/src/plugins/common/libdecor-cairo-blur.c",
     "src/xutf8/is_right2left.c",
-    "src/xutf8/is_spacing.c",
     "src/xutf8/keysym2Ucs.c",
-    "src/xutf8/case.c",
 };
 
 // Windows
