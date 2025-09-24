@@ -73,15 +73,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const upstream = b.dependency("fltk", .{});
-    // cairo crashes when built in debug mode
-    const dep_optimize: std.builtin.OptimizeMode = switch (optimize) {
-        .Debug => .ReleaseFast,
-        else => optimize,
-    };
 
     const os_tag = target.result.os.tag;
     if (os_tag != .linux and os_tag != .windows) {
-        @panic("zig build for FLTK currently supports only Linux (X11) and Windows (WinAPI) targets");
+        @panic("zig build for FLTK currently supports only Linux (X11+Wayland) and Windows (WinAPI) targets");
     }
 
     var cpp_sources = std.ArrayList([]const u8).init(b.allocator);
@@ -110,6 +105,10 @@ pub fn build(b: *std.Build) void {
             addFiles(&cpp_sources, &fltk_driver_winapi_cpp_srcs);
             addFiles(&c_sources, &fltk_driver_winapi_c_srcs);
             for (windows_system_libs) |name| lib.root_module.linkSystemLibrary(name, .{});
+        },
+        .macos => {
+            addFiles(&cpp_sources, &fltk_driver_macos_cpp_srcs);
+            lib.linkFramework("Cocoa");
         },
         else => unreachable,
     }
@@ -146,12 +145,12 @@ pub fn build(b: *std.Build) void {
             .HAVE_GL = false,
             .HAVE_GL_GLU_H = false,
             .HAVE_GLXGETPROCADDRESSARB = false,
-            .HAVE_XINERAMA = 0,
+            .HAVE_XINERAMA = false,
             .USE_XFT = os_tag == .linux,
             .USE_PANGO = os_tag == .linux,
-            .HAVE_XFIXES = 0,
-            .HAVE_XCURSOR = 0,
-            .HAVE_XRENDER = 0,
+            .HAVE_XFIXES = false,
+            .HAVE_XCURSOR = false,
+            .HAVE_XRENDER = false,
             .HAVE_X11_XREGION_H = os_tag == .linux,
             .HAVE_GL_OVERLAY = os_tag == .linux,
             .U16 = "unsigned short",
@@ -166,11 +165,11 @@ pub fn build(b: *std.Build) void {
             .HAVE_STRCASECMP = os_tag == .linux,
             .HAVE_PTHREAD = os_tag == .linux,
             .HAVE_PTHREAD_H = os_tag == .linux,
-            .HAVE_LOCALE_H = 1,
-            .HAVE_LOCALECONV = 1,
+            .HAVE_LOCALE_H = true,
+            .HAVE_LOCALECONV = true,
             .HAVE_SYS_SELECT_H = os_tag == .linux,
             .HAVE_SETENV = os_tag == .linux,
-            .HAVE_TRUNC = 1,
+            .HAVE_TRUNC = true,
             .HAVE_LIBPNG = true,
             .HAVE_LIBZ = true,
             .HAVE_LIBJPEG = true,
@@ -178,7 +177,7 @@ pub fn build(b: *std.Build) void {
             .HAVE_PNG_GET_VALID = true,
             .HAVE_PNG_SET_TRNS_TO_ALPHA = true,
             .HAVE_PTHREAD_MUTEX_RECURSIVE = os_tag == .linux,
-            .HAVE_LONG_LONG = 1,
+            .HAVE_LONG_LONG = true,
             .HAVE_DLFCN_H = os_tag == .linux,
             .HAVE_DLSYM = os_tag == .linux,
         },
@@ -193,7 +192,7 @@ pub fn build(b: *std.Build) void {
         },
         .{
             .FL_ABI_VERSION = "10400",
-            .FLTK_USE_CAIRO = false,
+            .FLTK_USE_CAIRO = os_tag == .linux,
             .FLTK_USE_X11 = os_tag == .linux,
             .FLTK_HAVE_CAIRO = false,
             .FLTK_USE_WAYLAND = os_tag == .linux,
@@ -204,25 +203,25 @@ pub fn build(b: *std.Build) void {
 
     const zlib_dep = b.dependency("zlib", .{
         .target = target,
-        .optimize = dep_optimize,
+        .optimize = optimize,
     });
     lib.linkLibrary(zlib_dep.artifact("z"));
 
     const libjpeg_dep = b.dependency("libjpeg", .{
         .target = target,
-        .optimize = dep_optimize,
+        .optimize = optimize,
     });
     lib.linkLibrary(libjpeg_dep.artifact("jpeg"));
 
     const libpng_dep = b.dependency("libpng", .{
         .target = target,
-        .optimize = dep_optimize,
+        .optimize = optimize,
     });
     lib.linkLibrary(libpng_dep.artifact("png"));
 
     addFiles(&cpp_sources, &fltk_img_cpp_srcs);
 
-    const cpp_flags = [_][]const u8{"-std=c++11"};
+    const cpp_flags = [_][]const u8{};
     const c_flags = [_][]const u8{
         "-std=c11",
         "-D_GNU_SOURCE=1",
@@ -263,6 +262,7 @@ pub fn build(b: *std.Build) void {
     lib.addCSourceFiles(.{ .root = upstream.path(""), .files = c_sources.items, .flags = &c_flags, .language = .c });
     b.installArtifact(lib);
 }
+
 const fltk_cpp_srcs = [_][]const u8{
     "src/Fl.cxx",
     "src/Fl_Adjuster.cxx",
@@ -272,6 +272,7 @@ const fltk_cpp_srcs = [_][]const u8{
     "src/Fl_Browser_load.cxx",
     "src/Fl_Box.cxx",
     "src/Fl_Button.cxx",
+    "src/Fl_Cairo.cxx",
     "src/Fl_Chart.cxx",
     "src/Fl_Check_Browser.cxx",
     "src/Fl_Check_Button.cxx",
@@ -424,11 +425,9 @@ const fltk_cpp_srcs = [_][]const u8{
 
 const fltk_c_srcs = [_][]const u8{
     "src/flstring.c",
+    "src/scandir_posix.c",
     "src/numericsort.c",
     "src/vsnprintf.c",
-    "src/xutf8/is_right2left.c",
-    "src/xutf8/is_spacing.c",
-    "src/xutf8/case.c",
 };
 
 const fltk_img_cpp_srcs = [_][]const u8{
@@ -457,6 +456,47 @@ const fltk_postscript_cpp_srcs = [_][]const u8{
 /// DRIVER
 //////////////////
 
+// Linux Wayland + X11
+const fltk_driver_linux_cpp_srcs = [_][]const u8{
+    "src/drivers/Posix/Fl_Posix_System_Driver.cxx",
+    "src/drivers/Posix/Fl_Posix_Printer_Driver.cxx",
+    "src/drivers/Unix/Fl_Unix_Screen_Driver.cxx",
+    "src/drivers/Wayland/Fl_Wayland_Screen_Driver.cxx",
+    "src/drivers/Wayland/Fl_Wayland_Window_Driver.cxx",
+    "src/drivers/Unix/Fl_Unix_System_Driver.cxx",
+    "src/drivers/Wayland/Fl_Wayland_Graphics_Driver.cxx",
+    "src/drivers/Wayland/Fl_Wayland_Copy_Surface_Driver.cxx",
+    "src/drivers/Wayland/Fl_Wayland_Image_Surface_Driver.cxx",
+    "src/drivers/Wayland/fl_wayland_clipboard_dnd.cxx",
+    "src/drivers/Wayland/fl_wayland_platform_init.cxx",
+    "src/drivers/Cairo/Fl_Cairo_Graphics_Driver.cxx",
+    "src/Fl_Native_File_Chooser_FLTK.cxx",
+    "src/Fl_Native_File_Chooser_GTK.cxx",
+    "src/Fl_Native_File_Chooser_Kdialog.cxx",
+    "src/Fl_Native_File_Chooser_Zenity.cxx",
+    "src/drivers/Cairo/Fl_X11_Cairo_Graphics_Driver.cxx",
+    "src/drivers/X11/Fl_X11_Screen_Driver.cxx",
+    "src/drivers/X11/Fl_X11_Window_Driver.cxx",
+    "src/drivers/Xlib/Fl_Xlib_Copy_Surface_Driver.cxx",
+    "src/drivers/Xlib/Fl_Xlib_Image_Surface_Driver.cxx",
+    "src/Fl_x.cxx",
+    "src/fl_dnd_x.cxx",
+    "src/Fl_get_key.cxx",
+};
+
+const fltk_driver_linux_c_srcs = [_][]const u8{
+    "libdecor/build/fl_libdecor.c",
+    "libdecor/build/fl_libdecor-plugins.c",
+    "libdecor/src/os-compatibility.c",
+    "libdecor/src/desktop-settings.c",
+    "libdecor/src/plugins/common/libdecor-cairo-blur.c",
+    "src/xutf8/is_right2left.c",
+    "src/xutf8/is_spacing.c",
+    "src/xutf8/keysym2Ucs.c",
+    "src/xutf8/case.c",
+};
+
+// Windows
 const fltk_driver_winapi_cpp_srcs = [_][]const u8{
     "src/drivers/WinAPI/Fl_WinAPI_System_Driver.cxx",
     "src/drivers/WinAPI/Fl_WinAPI_Screen_Driver.cxx",
@@ -484,41 +524,24 @@ const fltk_driver_winapi_c_srcs = [_][]const u8{
     "src/fl_call_main.c",
 };
 
-//wayland + x11
-const fltk_driver_linux_cpp_srcs = [_][]const u8{
-    "src/drivers/Wayland/Fl_Wayland_Screen_Driver.cxx",
-    "src/drivers/Wayland/Fl_Wayland_Window_Driver.cxx",
-    "src/drivers/Wayland/Fl_Wayland_Graphics_Driver.cxx",
-    "src/drivers/Wayland/Fl_Wayland_Copy_Surface_Driver.cxx",
-    "src/drivers/Wayland/Fl_Wayland_Image_Surface_Driver.cxx",
-    "src/drivers/Wayland/fl_wayland_clipboard_dnd.cxx",
-    "src/drivers/Wayland/fl_wayland_platform_init.cxx",
-
+// MacOS
+const fltk_driver_macos_cpp_srcs = [_][]const u8{
+    "src/drivers/Quartz/Fl_Quartz_Graphics_Driver.cxx",
+    "src/drivers/Quartz/Fl_Quartz_Graphics_Driver_color.cxx",
+    "src/drivers/Quartz/Fl_Quartz_Graphics_Driver_rect.cxx",
+    "src/drivers/Quartz/Fl_Quartz_Graphics_Driver_font.cxx",
+    "src/drivers/Quartz/Fl_Quartz_Graphics_Driver_vertex.cxx",
+    "src/drivers/Quartz/Fl_Quartz_Graphics_Driver_image.cxx",
+    "src/drivers/Quartz/Fl_Quartz_Graphics_Driver_arci.cxx",
+    "src/drivers/Quartz/Fl_Quartz_Graphics_Driver_line_style.cxx",
+    "src/drivers/Quartz/Fl_Quartz_Copy_Surface_Driver.cxx",
+    "src/drivers/Quartz/Fl_Quartz_Image_Surface_Driver.cxx",
+    "src/drivers/Cocoa/Fl_Cocoa_Window_Driver.cxx",
+    "src/drivers/Cocoa/Fl_Cocoa_Screen_Driver.cxx",
     "src/drivers/Posix/Fl_Posix_System_Driver.cxx",
-    "src/drivers/Posix/Fl_Posix_Printer_Driver.cxx",
-    "src/drivers/Unix/Fl_Unix_Screen_Driver.cxx",
-    "src/drivers/Unix/Fl_Unix_System_Driver.cxx",
-    "src/drivers/Cairo/Fl_Cairo_Graphics_Driver.cxx",
-    "src/Fl_Native_File_Chooser_FLTK.cxx",
-    "src/Fl_Native_File_Chooser_GTK.cxx",
-    "src/Fl_Native_File_Chooser_Kdialog.cxx",
-    "src/Fl_Native_File_Chooser_Zenity.cxx",
-    "src/drivers/Cairo/Fl_X11_Cairo_Graphics_Driver.cxx",
-    "src/drivers/X11/Fl_X11_Screen_Driver.cxx",
-    "src/drivers/X11/Fl_X11_Window_Driver.cxx",
-    "src/drivers/Xlib/Fl_Xlib_Copy_Surface_Driver.cxx",
-    "src/drivers/Xlib/Fl_Xlib_Image_Surface_Driver.cxx",
-    "src/Fl_x.cxx",
-    "src/fl_dnd_x.cxx",
-    "src/Fl_get_key.cxx",
-};
-
-const fltk_driver_linux_c_srcs = [_][]const u8{
-    "libdecor/build/fl_libdecor.c",
-    "libdecor/build/fl_libdecor-plugins.c",
-    "libdecor/src/os-compatibility.c",
-    "libdecor/src/desktop-settings.c",
-    "libdecor/src/plugins/common/libdecor-cairo-blur.c",
+    "src/drivers/Darwin/Fl_Darwin_System_Driver.cxx",
+    "src/Fl_get_key_mac.cxx",
+    "src/drivers/Darwin/fl_macOS_platform_init.cxx",
 };
 
 const linux_system_libs = [_][]const u8{
